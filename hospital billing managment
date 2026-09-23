@@ -1,0 +1,444 @@
+import os
+import sqlite3
+from datetime import datetime
+from functools import wraps
+
+from flask import (
+    Flask,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+
+app = Flask(__name__)
+
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    "akash-clinic-secret-key-2026",
+)
+
+DATABASE = os.path.join(app.root_path, "clinic.db")
+
+DISEASE_PRICES = {
+    "Fever": 200,
+    "Cold and Cough": 200,
+    "Malaria": 500,
+    "Dengue": 500,
+    "Typhoid": 500,
+    "Other": 300,
+}
+
+CONSULTATION_FEE = 300
+
+
+# ---------------------------------------------------------
+# DATABASE
+# ---------------------------------------------------------
+
+def get_db():
+    connection = sqlite3.connect(DATABASE)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def init_db():
+    with get_db() as db:
+
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                age INTEGER NOT NULL,
+                contact TEXT NOT NULL,
+                gender TEXT NOT NULL,
+                dob TEXT NOT NULL,
+                disease TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                consultation_fee REAL NOT NULL,
+                disease_charge REAL NOT NULL,
+                total REAL NOT NULL,
+                payment_method TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (patient_id)
+                REFERENCES patients(id)
+                ON DELETE CASCADE
+            )
+            """
+        )
+
+        db.commit()
+
+
+# ---------------------------------------------------------
+# LOGIN REQUIRED
+# ---------------------------------------------------------
+
+def login_required(function):
+
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+
+        if not session.get("logged_in"):
+            flash("Please log in first.", "error")
+            return redirect(url_for("login"))
+
+        return function(*args, **kwargs)
+
+    return wrapper
+
+
+# ---------------------------------------------------------
+# LOGIN
+# ---------------------------------------------------------
+
+@app.route("/", methods=["GET", "POST"])
+def login():
+
+    if session.get("logged_in"):
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+
+        if username == "admin" and password == "1234":
+
+            session.clear()
+            session["logged_in"] = True
+            session["username"] = username
+
+            flash("Login successful.", "success")
+            return redirect(url_for("dashboard"))
+
+        flash("Invalid username or password.", "error")
+
+    return render_template("login.html")
+
+
+# ---------------------------------------------------------
+# DASHBOARD AND SEARCH
+# ---------------------------------------------------------
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+
+    search = request.args.get("search", "").strip()
+
+    with get_db() as db:
+
+        if search:
+
+            patients = db.execute(
+                """
+                SELECT *
+                FROM patients
+                WHERE name LIKE ?
+                   OR contact LIKE ?
+                   OR disease LIKE ?
+                ORDER BY id DESC
+                """,
+                (
+                    f"%{search}%",
+                    f"%{search}%",
+                    f"%{search}%",
+                ),
+            ).fetchall()
+
+        else:
+
+            patients = db.execute(
+                """
+                SELECT *
+                FROM patients
+                ORDER BY id DESC
+                """
+            ).fetchall()
+
+    return render_template(
+        "dashboard.html",
+        patients=patients,
+        search=search,
+    )
+
+
+# ---------------------------------------------------------
+# ADD PATIENT
+# ---------------------------------------------------------
+
+@app.route("/patient/add", methods=["GET", "POST"])
+@login_required
+def add_patient():
+
+    if request.method == "POST":
+
+        name = request.form.get("name", "").strip()
+        age_text = request.form.get("age", "").strip()
+        contact = request.form.get("contact", "").strip()
+        gender = request.form.get("gender", "").strip()
+        dob = request.form.get("dob", "").strip()
+        disease = request.form.get("disease", "").strip()
+
+        error = None
+
+        if not name:
+            error = "Patient name is required."
+
+        elif not age_text.isdigit():
+            error = "Age must be a number."
+
+        else:
+            age = int(age_text)
+
+            if age < 0 or age > 120:
+                error = "Enter an age between 0 and 120."
+
+        if error is None:
+            if not contact.isdigit() or len(contact) != 10:
+                error = "Enter a valid 10-digit contact number."
+
+        if error is None:
+            if gender not in ("Male", "Female", "Other"):
+                error = "Please select a gender."
+
+        if error is None and not dob:
+            error = "Please select the date of birth."
+
+        if error is None:
+            try:
+                datetime.strptime(dob, "%Y-%m-%d")
+            except ValueError:
+                error = "Please select a valid date of birth."
+
+        if error is None and disease not in DISEASE_PRICES:
+            error = "Please select a valid disease."
+
+        if error:
+
+            flash(error, "error")
+
+            return render_template(
+                "patient_form.html",
+                diseases=DISEASE_PRICES,
+            )
+
+        created_at = datetime.now().strftime(
+            "%d-%m-%Y %I:%M %p"
+        )
+
+        with get_db() as db:
+
+            db.execute(
+                """
+                INSERT INTO patients (
+                    name,
+                    age,
+                    contact,
+                    gender,
+                    dob,
+                    disease,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    age,
+                    contact,
+                    gender,
+                    dob,
+                    disease,
+                    created_at,
+                ),
+            )
+
+            db.commit()
+
+        flash("Patient added successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template(
+        "patient_form.html",
+        diseases=DISEASE_PRICES,
+    )
+
+
+# ---------------------------------------------------------
+# DELETE PATIENT
+# ---------------------------------------------------------
+
+@app.route(
+    "/patient/<int:patient_id>/delete",
+    methods=["POST"],
+)
+@login_required
+def delete_patient(patient_id):
+
+    with get_db() as db:
+
+        patient = db.execute(
+            "SELECT id FROM patients WHERE id = ?",
+            (patient_id,),
+        ).fetchone()
+
+        if patient is None:
+            flash("Patient not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        db.execute(
+            "DELETE FROM bills WHERE patient_id = ?",
+            (patient_id,),
+        )
+
+        db.execute(
+            "DELETE FROM patients WHERE id = ?",
+            (patient_id,),
+        )
+
+        db.commit()
+
+    flash("Patient deleted successfully.", "success")
+    return redirect(url_for("dashboard"))
+
+
+# ---------------------------------------------------------
+# GENERATE BILL
+# ---------------------------------------------------------
+
+@app.route(
+    "/patient/<int:patient_id>/bill",
+    methods=["GET", "POST"],
+)
+@login_required
+def generate_bill(patient_id):
+
+    with get_db() as db:
+
+        patient = db.execute(
+            "SELECT * FROM patients WHERE id = ?",
+            (patient_id,),
+        ).fetchone()
+
+    if patient is None:
+        flash("Patient not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    disease_charge = DISEASE_PRICES.get(
+        patient["disease"],
+        DISEASE_PRICES["Other"],
+    )
+
+    total = CONSULTATION_FEE + disease_charge
+
+    if request.method == "POST":
+
+        payment = request.form.get(
+            "payment_method",
+            "",
+        ).strip()
+
+        if payment not in ("Cash", "UPI"):
+
+            flash("Please select Cash or UPI.", "error")
+
+            return render_template(
+                "bill.html",
+                patient=patient,
+                consultation=CONSULTATION_FEE,
+                disease_charge=disease_charge,
+                total=total,
+            )
+
+        created_at = datetime.now().strftime(
+            "%d-%m-%Y %I:%M %p"
+        )
+
+        with get_db() as db:
+
+            cursor = db.execute(
+                """
+                INSERT INTO bills (
+                    patient_id,
+                    consultation_fee,
+                    disease_charge,
+                    total,
+                    payment_method,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    patient_id,
+                    CONSULTATION_FEE,
+                    disease_charge,
+                    total,
+                    payment,
+                    created_at,
+                ),
+            )
+
+            bill_id = cursor.lastrowid
+            db.commit()
+
+        return render_template(
+            "receipt.html",
+            patient=patient,
+            bill_id=bill_id,
+            consultation=CONSULTATION_FEE,
+            disease_charge=disease_charge,
+            total=total,
+            payment=payment,
+            created_at=created_at,
+        )
+
+    return render_template(
+        "bill.html",
+        patient=patient,
+        consultation=CONSULTATION_FEE,
+        disease_charge=disease_charge,
+        total=total,
+    )
+
+
+# ---------------------------------------------------------
+# LOGOUT
+# ---------------------------------------------------------
+
+@app.route("/logout")
+def logout():
+
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ---------------------------------------------------------
+# RUN APPLICATION
+# ---------------------------------------------------------
+
+if __name__ == "__main__":
+
+    init_db()
+
+    print("AKASH CLINIC is running.")
+    print("Open: http://127.0.0.1:5000")
+
+    app.run(
+        host="127.0.0.1",
+        port=5000,
+        debug=True,
+    )
