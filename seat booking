@@ -1,0 +1,71 @@
+seats = ["A" for _ in range(10)]
+
+
+def display_seats():
+    for i in range(len(seats)):
+        print(f"Seat {i+1}: {seats[i]}")
+
+
+def book_seat(seat_no):
+    if seat_no < 1 or seat_no > len(seats):
+        print("Invalid seat number")
+        return
+    if seats[seat_no-1] == "B":
+        print("Seat already booked")
+        return
+    seats[seat_no-1] = "B"
+    print("Seat booked successfully")
+
+
+def cancel_seat(seat_no):
+    if seat_no < 1 or seat_no > len(seats):
+        print("Invalid seat number")
+        return
+    if seats[seat_no-1] == "A":
+        print("Seat is not booked")
+        return
+    seats[seat_no-1] = "A"
+    print("Booking cancelled")
+
+
+def available_count():
+    count = 0
+    for s in seats:
+        if s == "A":
+            count += 1
+    return count
+
+
+def menu():
+    while True:
+        print("1. Display seats")
+        print("2. Book a seat")
+        print("3. Cancel a seat")
+        print("4. Available seats count")
+        print("5. Exit")
+
+        choice = input("Enter choice: ")
+
+        if choice == "1":
+            display_seats()
+
+        elif choice == "2":
+            seat_no = int(input("Enter seat number to book: "))
+            book_seat(seat_no)
+
+        elif choice == "3":
+            seat_no = int(input("Enter seat number to cancel: "))
+            cancel_seat(seat_no)
+
+        elif choice == "4":
+            print(available_count())
+
+        elif choice == "5":
+            break
+
+        else:
+            print("Invalid choice")
+
+
+if __name__ == "__main__":
+    menu()
