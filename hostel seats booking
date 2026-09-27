@@ -1,0 +1,93 @@
+class Student:
+    def __init__(self, reg_no, name, room_no):
+        self.reg_no = reg_no
+        self.name = name
+        self.room_no = room_no
+
+    def display(self):
+        print("Registration No:", self.reg_no)
+        print("Name:", self.name)
+        print("Room No:", self.room_no)
+
+
+class Hostel:
+    def __init__(self, total_rooms):
+        self.total_rooms = total_rooms
+        self.available_rooms = list(range(1, total_rooms + 1))
+        self.students = {}
+        self.next_reg_no = 1
+
+    def book_room(self, name):
+        if not self.available_rooms:
+            print("No rooms available")
+            return
+        room_no = self.available_rooms.pop(0)
+        reg_no = self.next_reg_no
+        self.students[reg_no] = Student(reg_no, name, room_no)
+        self.next_reg_no += 1
+        print("Admission successful. Registration No:", reg_no, "Room No:", room_no)
+
+    def cancel_booking(self, reg_no):
+        if reg_no in self.students:
+            student = self.students.pop(reg_no)
+            self.available_rooms.append(student.room_no)
+            self.available_rooms.sort()
+            print("Booking cancelled for", student.name)
+        else:
+            print("Registration number not found")
+
+    def display_student(self, reg_no):
+        if reg_no in self.students:
+            self.students[reg_no].display()
+        else:
+            print("Registration number not found")
+
+    def display_all(self):
+        if not self.students:
+            print("No students admitted")
+        for student in self.students.values():
+            student.display()
+            print()
+
+    def display_available_rooms(self):
+        print("Available rooms:", self.available_rooms)
+
+
+def menu():
+    hostel = Hostel(10)
+    while True:
+        print("1. Book Room")
+        print("2. Cancel Booking")
+        print("3. Display Student")
+        print("4. Display All Students")
+        print("5. Display Available Rooms")
+        print("6. Exit")
+        choice = input("Enter choice: ")
+
+        if choice == "1":
+            name = input("Enter student name: ")
+            hostel.book_room(name)
+
+        elif choice == "2":
+            reg_no = int(input("Enter registration number: "))
+            hostel.cancel_booking(reg_no)
+
+        elif choice == "3":
+            reg_no = int(input("Enter registration number: "))
+            hostel.display_student(reg_no)
+
+        elif choice == "4":
+            hostel.display_all()
+
+        elif choice == "5":
+            hostel.display_available_rooms()
+
+        elif choice == "6":
+            print("Exiting")
+            break
+
+        else:
+            print("Invalid choice")
+
+
+menu()
